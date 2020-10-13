@@ -34,6 +34,7 @@ ramips_setup_interfaces()
 	h3c,tx1806|\
 	hiwifi,hc5962|\
 	netgear,wax202|\
+	xwrt,wr1800k-ax-nand|\
 	xiaomi,mi-router-3-pro-nor|\
 	xiaomi,mi-router-3-pro|\
 	xiaomi,mi-router-cr6606|\
