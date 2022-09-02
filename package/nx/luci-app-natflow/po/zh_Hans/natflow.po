@@ -1,0 +1,20 @@
+msgid "Advanced Options"
+msgstr "高级选项"
+
+msgid "System Settings"
+msgstr "系统设置"
+
+msgid "Full Cone Nat"
+msgstr "全锥形NAT"
+
+msgid "Generally do not need to be enabled unless used to play games."
+msgstr "一般不需要启用，除非用来打游戏。"
+
+msgid "Enable Fast Forwarding"
+msgstr "启用转发加速(natflow)"
+
+msgid "Enable Fast NAT Offload"
+msgstr "启用快速转发(offload)"
+
+msgid "Enable Fast Forwarding Hardware Offload"
+msgstr "启用硬件转发加速"
