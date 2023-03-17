@@ -1,0 +1,131 @@
+
+name: X-Wrt
+
+on:
+  push:
+    paths:
+      - 'shell/version'
+        
+jobs:
+  Fconfig: 
+    name: Generate Config
+    runs-on: ubuntu-latest
+    outputs:
+      CFG_CONFIG: ${{ steps.findconfig.outputs.CFG_CONFIG }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Find Config
+        id: findconfig
+        run: |
+          CFGS="$(cat $GITHUB_WORKSPACE/shell/config/cfg.list)"
+          
+          NUEXINI='['
+          n=1
+          
+          for a in $CFGS; do
+            [[ $n -ne 1 ]] && NUEXINI="$NUEXINI"','
+            NUEXINI="$NUEXINI"'"'"${a}"'"'
+            n=0
+          done
+          
+          NUEXINI="$NUEXINI"']'
+          
+          echo $NUEXINI
+          echo "CFG_CONFIG=$NUEXINI" >> $GITHUB_OUTPUT
+  
+  build:
+    name: ${{ matrix.config }}
+    needs: [Fconfig]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: 
+        config: ${{fromJson(needs.Fconfig.outputs.CFG_CONFIG)}}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Initialization
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo -E apt-get -y update
+          sudo -E apt-get -y install $(cat ./.github/workflows/X-Wrt.env)
+          sudo -E apt-get -y autoremove --purge
+          sudo -E apt-get -y clean
+
+      - name: Feeds
+        run: |
+          chmod +x $GITHUB_WORKSPACE/shell/scripts/*.sh
+          echo 'src-git NueXini_Packages https://github.com/NueXini/NueXini_Packages.git' >> feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+      - name: Configure .config
+        run: |
+          cp -f $GITHUB_WORKSPACE/shell/config/${{ matrix.config }} .config
+          
+          bash $GITHUB_WORKSPACE/shell/scripts/Hi_NueXini.sh
+      
+      - name: Parse SDK file
+        run: |
+          grep '^CONFIG_TARGET_BOARD' .config | cut -d '"' -f 2 >NX_TARGET_BOARD
+          grep '^CONFIG_TARGET_SUBTARGET' .config | cut -d '"' -f 2 >NX_TARGET_SUBTARGET
+          curl -s "https://downloads.openwrt.org/snapshots/targets/$(cat NX_TARGET_BOARD)/$(cat NX_TARGET_SUBTARGET)/sha256sums" \
+            | sed -n -e 's/.*\(openwrt-sdk.*\).tar.xz/\1/p' >NX_SDK_FILE
+          cat NX_SDK_FILE
+            
+      - name: Download SDK
+        run: |
+          wget -q -O - https://downloads.openwrt.org/snapshots/targets/$(cat NX_TARGET_BOARD)/$(cat NX_TARGET_SUBTARGET)/$(cat NX_SDK_FILE).tar.xz \
+            | tar --xz -xf -
+      
+      - name: Configure tools
+        run: |
+          # cp -rf $(cat NX_SDK_FILE)/staging_dir ./
+          # bash ./shell/scripts/fixtools.sh
+          ln -sf /usr/bin/upx ./staging_dir/host/bin/upx
+          ln -sf /usr/bin/upx-ucl ./staging_dir/host/bin/upx-ucl
+        
+      - name: Configure external toolchain
+        run: |
+          bash ./scripts/ext-toolchain.sh \
+            --toolchain $(cat NX_SDK_FILE)/staging_dir/toolchain-* \
+            --overwrite-config \
+            --config $(cat NX_TARGET_BOARD)/$(cat NX_TARGET_SUBTARGET)
+          
+          make defconfig
+          make download -j8
+          rm -rf $(find ./dl/ -size -1024c)
+          
+      - name: Build tools
+        run: make tools/install -j$(nproc) BUILD_LOG=1 || ret=$? $GITHUB_WORKSPACE/shell/scripts/tools_show_build_failures.sh
+          
+      - name: Build toolchain
+        run: make toolchain/install -j$(nproc) BUILD_LOG=1 || ret=$? $GITHUB_WORKSPACE/shell/scripts/tools_show_build_failures.sh
+          
+      - name: Build
+        run: |
+          make -j$(nproc) BUILD_LOG=1 || ret=$? $GITHUB_WORKSPACE/shell/scripts/tools_show_build_failures.sh
+          
+          mkdir -p ./artifact/firmware
+          
+          bash $GITHUB_WORKSPACE/shell/scripts/firmware.sh
+    
+      - name: Upload error log
+        uses: actions/upload-artifact@master
+        if: failure()
+        with:
+          name: ${{ matrix.config }}
+          path: logs
+        
+      - name: Upload Firmware
+        uses: actions/upload-artifact@master
+        with:
+          name: ${{ matrix.config }}
+          path: artifact/firmware
